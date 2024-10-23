@@ -1122,7 +1122,10 @@ def main() -> None:
         if rank == 0:
             # Save entire model
             # name length hack
-            tag = tag[100:]
+            
+            # name too long hack
+            #tag = tag[100:]
+
             if swa_eval:
                 model_path = Path(args.checkpoints_dir) / (tag + "_swa.model")
             else:

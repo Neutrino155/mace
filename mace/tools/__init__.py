@@ -30,12 +30,13 @@ from .utils import (
     get_tag,
     setup_logger,
 )
-
+from .dataloader_utils import MemoryTrackingDataLoader, create_memory_tracked_loader 
 from .finetuning_utils import load_foundations_elements, extract_load
 
 __all__ = [
     "TensorDict",
     "AtomicNumberTable",
+    "MemoryTrackingDataLoader",
     "atomic_numbers_to_indices",
     "to_numpy",
     "to_one_hot",
@@ -69,4 +70,5 @@ __all__ = [
     "load_foundations_elements",
     "extract_load",
     "build_preprocess_arg_parser",
+    "create_memory_tracked_loader",
 ]

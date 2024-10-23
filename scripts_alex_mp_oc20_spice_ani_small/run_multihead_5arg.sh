@@ -61,7 +61,7 @@ mace_run_train \
     --config="multihead_config/${CONF}" \
     --device=cuda \
     --distributed \
-    --num_workers=4 \
+    --num_workers=2 \
     --agnostic_int ${agnostic_first} False False \
     --agnostic_con False False False \
 

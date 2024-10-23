@@ -41,3 +41,5 @@ dist/
 *.png
 *.gif
 
+cache_files/
+creat_links.sh

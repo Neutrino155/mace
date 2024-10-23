@@ -381,6 +381,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         default=True,
     )
     parser.add_argument(
+        "--clean_alex",
+        help="if clean alex or not",
+        default=False,
+        action="store_true"
+    )
+    parser.add_argument(
         "--weight_pt_head",
         help="Weight of the pretrained head in the loss function",
         type=float,
@@ -450,6 +456,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "huber",
             "universal",
             "energy_forces_dipole",
+            "omat24",
         ],
     )
     parser.add_argument(

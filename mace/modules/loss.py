@@ -15,7 +15,18 @@ def mean_squared_error_energy(ref: Batch, pred: TensorDict) -> torch.Tensor:
     return torch.mean(torch.square(ref["energy"] - pred["energy"]))  # []
 
 
-def weighted_mean_squared_error_energy(ref: Batch, pred: TensorDict) -> torch.Tensor:
+def weighted_mean_abs_error_energy(ref: Batch, pred: TensorDict) -> torch.tensor:
+    # energy: [n_graphs, ]
+    configs_weight = ref.weight  # [n_graphs, ]
+    configs_energy_weight = ref.energy_weight  # [n_graphs, ]
+    num_atoms = ref.ptr[1:] - ref.ptr[:-1]  # [n_graphs,]
+    return torch.mean(
+        configs_weight
+        * configs_energy_weight
+        * torch.abs((ref["energy"] - pred["energy"]) / num_atoms)
+    )  # []
+
+def weighted_mean_squared_error_energy(ref: Batch, pred: TensorDict) -> torch.tensor:
     # energy: [n_graphs, ]
     configs_weight = ref.weight  # [n_graphs, ]
     configs_energy_weight = ref.energy_weight  # [n_graphs, ]
@@ -250,6 +261,51 @@ class WeightedHuberEnergyForcesStressLoss(torch.nn.Module):
             f"forces_weight={self.forces_weight:.3f}, stress_weight={self.stress_weight:.3f})"
         )
 
+
+class OMat24Loss(torch.nn.Module):
+    def __init__(
+        self, energy_weight=1.0, forces_weight=1.0, stress_weight=1.0, huber_delta=0.01,
+        head_stress_mask=None
+    ) -> None:
+        super().__init__()
+        self.huber_loss = torch.nn.HuberLoss(reduction="mean", delta=huber_delta)
+        self.register_buffer(
+            "energy_weight",
+            torch.tensor(energy_weight, dtype=torch.get_default_dtype()),
+        )
+        self.register_buffer(
+            "forces_weight",
+            torch.tensor(forces_weight, dtype=torch.get_default_dtype()),
+        )
+        self.register_buffer(
+            "stress_weight",
+            torch.tensor(stress_weight, dtype=torch.get_default_dtype()),
+        )
+        self.head_stress_mask=head_stress_mask
+
+    def forward(self, ref: Batch, pred: TensorDict) -> torch.Tensor:
+        num_atoms = ref.ptr[1:] - ref.ptr[:-1]
+        if self.head_stress_mask is None:
+            return (
+                self.energy_weight
+                * weighted_mean_abs_error_energy(ref, pred)
+                + self.forces_weight * mean_squared_error_forces(ref, pred)
+                + self.stress_weight * self.huber_loss(ref["stress"], pred["stress"])
+            )
+        else:
+            stress_musk = self.head_stress_mask[ref.head].view(-1, 1, 1)
+            return (
+                self.energy_weight
+                * weighted_mean_abs_error_energy(ref, pred)
+                + self.forces_weight * mean_squared_error_forces(ref, pred)
+                + self.stress_weight * self.huber_loss(ref["stress"] * stress_musk, pred["stress"] * stress_musk)
+            )
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f}, "
+            f"forces_weight={self.forces_weight:.3f}, stress_weight={self.stress_weight:.3f})"
+        )
 
 class UniversalLoss(torch.nn.Module):
     def __init__(

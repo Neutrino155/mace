@@ -30,6 +30,7 @@ from mace import data, modules, tools
 from mace.calculators.foundations_models import mace_mp, mace_off
 from mace.cli.fine_tuning_select import select_samples
 from mace.tools import torch_geometric
+from mace.tools import create_memory_tracked_loader
 from mace.tools.scripts_utils import (
     LRScheduler,
     create_error_table,
@@ -50,7 +51,74 @@ from mace.tools.utils import AtomicNumberTable
 from torch.utils.data import ConcatDataset
 from box import Box
 from tqdm import tqdm
+import multiprocessing as mp
+from tqdm import tqdm
 
+import time
+
+def get_loss(dataset, model_path="/lustre/fsn1/projects/rech/gax/unh55hx/mace_multi_head_interface_bk/checkpoints/RASimpleDensityResidualIntBlockx2_run-123_epoch-35.model"):
+    from torch_scatter import scatter
+    # Load the model
+    model = torch.load(model_path, map_location=f'cuda')
+    model.eval()  # Set the model to evaluation mode
+
+    # Create DataLoader with DistributedSampler
+    dataloader = torch_geometric.dataloader.DataLoader(dataset, batch_size=128, num_workers=12, shuffle=False)
+
+    device = torch.device(f'cuda')
+    model = model.to(device)
+
+    for param in model.parameters():
+        param.requires_grad = False
+
+
+    #label_l1, pred_l1, delta_l1 = [], [], []
+    label_l2, pred_l2, delta_l2 = [], [], []
+    dataloader_iter = tqdm(dataloader, desc=f"Processing batches ", unit="batch")
+
+    for batch in dataloader_iter:
+        batch = batch.to(device)
+        batch_dict = batch.to_dict()
+        
+        # Ensure positions require gradients
+        batch_dict['positions'].requires_grad_(True)
+        
+        output = model(
+            batch_dict,
+            training=False,
+            compute_force=True,
+            compute_virials=False,
+            compute_stress=False,
+        )
+        
+        # Calculate force delta
+        pred_force = output['forces'].detach()
+        label_force = batch.forces.detach()
+        delta = (label_force - pred_force).detach()
+        
+        # Scatter across batch
+        batch_index = batch_dict['batch']
+        num_graphs = int(batch_index.max()) + 1
+        
+        ## L1 norm calculations
+        #label_l1.append(scatter(torch.norm(label_force, dim=-1, p=1), batch_index, dim=0, dim_size=num_graphs, reduce='mean').cpu())
+        #pred_l1.append(scatter(torch.norm(pred_force, dim=-1, p=1), batch_index, dim=0, dim_size=num_graphs, reduce='mean').cpu())
+        #delta_l1.append(scatter(torch.norm(delta, dim=-1, p=1), batch_index, dim=0, dim_size=num_graphs, reduce='mean').cpu())
+
+        # L2 norm calculations
+        label_l2.append(scatter(torch.norm(label_force, dim=-1, p=2), batch_index, dim=0, dim_size=num_graphs, reduce='mean').cpu())
+        pred_l2.append(scatter(torch.norm(pred_force, dim=-1, p=2), batch_index, dim=0, dim_size=num_graphs, reduce='mean').cpu())
+        delta_l2.append(scatter(torch.norm(delta, dim=-1, p=2), batch_index, dim=0, dim_size=num_graphs, reduce='mean').cpu())
+        
+    
+    #local_label_l1 = torch.cat(label_l1, dim=0)
+    #local_pred_l1 = torch.cat(pred_l1, dim=0)
+    #local_delta_l1 = torch.cat(delta_l1, dim=0)
+    local_label_l2 = torch.cat(label_l2, dim=0)
+    local_pred_l2 = torch.cat(pred_l2, dim=0)
+    local_delta_l2 = torch.cat(delta_l2, dim=0)
+
+    return local_label_l2, local_pred_l2, local_delta_l2
 
 def bad_force(data):
     forces = data["forces"]
@@ -88,12 +156,11 @@ def bad_stress(data):
     else:
         return False
 
-import multiprocessing as mp
-from tqdm import tqdm
 
 def is_bad(data):
     """Check if a sample is 'bad' based on force, energy, and stress."""
     return bad_force(data) or bad_energy(data) or bad_stress(data) or bad_iso(data)
+
 
 def filter_data(train_set):
     """Filter out 'bad' samples from the dataset using multiprocessing."""
@@ -350,12 +417,19 @@ def main() -> None:
             head_args.train_set = data.HDF5Dataset(head_args.train_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()))
             head_args.valid_set = data.HDF5Dataset(head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()))
         else:  # This case would be for when the file path is to a directory of multiple .h5 files
-            head_args.train_set = data.dataset_from_sharded_hdf5(
-                head_args.train_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank, transform=head_transform
-            )
-            head_args.valid_set = data.dataset_from_sharded_hdf5(
-                head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank, transform=head_transform
-            )
+            if head_args.get("dataset_type", None) is None or head_args.get("dataset_type", None).lower() == "hdf5":
+                # default shared h5
+                head_args.train_set = data.dataset_from_sharded_hdf5(
+                    head_args.train_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank, transform=head_transform
+                )
+                head_args.valid_set = data.dataset_from_sharded_hdf5(
+                    head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank, transform=head_transform
+                )
+            elif head_args.get("dataset_type", None).lower() == "lmdb":
+                head_args.train_set = data.LMDBDataset(head_args.train_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()))
+                head_args.valid_set = data.LMDBDataset(head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()))
+            else:
+                raise NotImplementedError("dataset_type {head_args.dataset_type} not supported")
         
         logging.info(f"Dataset {head} size --> {format_number(len(head_args.train_set))}")
 
@@ -471,19 +545,28 @@ def main() -> None:
             logging.info("Complete")
         logging.info(f"mean {head_args.mean}, std {head_args.std}")
 
+    # mask dataset
+    if args.clean_alex:
+        #import ipdb; ipdb.set_trace()
+        label_l2 = torch.load("label_l2.pt")
+        pred_l2 = torch.load("pred_l2.pt")
+        delta_l2 = torch.load("delta_l2.pt")
+
+        masked_indices = torch.where(delta_l2 < 10)[0].cpu().numpy()
+
+        # training set cleaning
+        logging.info(f"[Alexandria] Removed number of datas --> {(delta_l2 >= 10).sum().item()}")
+        train_set = args.heads['alex_pbe'].train_set
+        args.heads['alex_pbe'].train_set = torch.utils.data.Subset(train_set, masked_indices)
+
+        # validation set cleaning
+        # logging.info(f"[Alexandria] Removed number of datas --> {(delta_l2 >= 10).sum().item()}")
+
     train_sets = {k:v.train_set for k,v in args.heads.items()}
     valid_sets = {k:v.valid_set for k,v in args.heads.items()}
     
     train_set = ConcatDataset(train_sets.values())
 
-    # mask dataset
-    if False:
-        
-        # Now apply the filter function to your train_set
-        # masked_indices = filter_data(train_set)
-
-        masked_indices = [i for i in tqdm(range(len(train_set))) if not is_bad(train_set[i])]
-        train_set = torch.utils.data.Subset(train_set, masked_indices)
 
     if args.model == "AtomicDipolesMACE":
         atomic_energies = None
@@ -538,7 +621,17 @@ def main() -> None:
         num_workers=args.num_workers,
         generator=torch.Generator().manual_seed(args.seed),
     )
-    
+    #train_loader = create_memory_tracked_loader(
+    #    dataset=train_set,
+    #    batch_size=args.batch_size,
+    #    sampler=train_sampler,
+    #    shuffle=(train_sampler is None),
+    #    drop_last=(train_sampler is None),
+    #    pin_memory=args.pin_memory,
+    #    num_workers=args.num_workers,
+    #    generator=torch.Generator().manual_seed(args.seed),
+    #)
+    #
     valid_loaders = {}
     for head, valid_set in valid_sets.items():
         valid_loaders[head] = torch_geometric.dataloader.DataLoader(
@@ -585,6 +678,14 @@ def main() -> None:
             forces_weight=args.forces_weight,
             stress_weight=args.stress_weight,
             huber_delta=args.huber_delta,
+            head_stress_mask=head_stress_mask
+        )
+    elif args.loss == "omat24":
+        head_stress_mask = torch.Tensor([float('mp' in k) for k in args.heads.keys()]).to(device=device)
+        loss_fn = modules.OMat24Loss(
+            energy_weight=args.energy_weight,
+            forces_weight=args.forces_weight,
+            stress_weight=args.stress_weight,
             head_stress_mask=head_stress_mask
         )
     elif args.loss == "dipole":
@@ -1115,4 +1216,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    torch.multiprocessing.set_start_method('spawn')
     main()

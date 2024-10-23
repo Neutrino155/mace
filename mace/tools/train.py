@@ -129,6 +129,46 @@ def valid_err_log(
         )
 
 
+def evaluate_on_train(
+    model: torch.nn.Module,
+    loss_fn: torch.nn.Module,
+    train_loader: DataLoader,
+    logger: MetricsLogger,
+    distributed: bool = False,
+    distributed_model: Optional[DistributedDataParallel] = None,
+    train_sampler: Optional[DistributedSampler] = None,
+    rank: Optional[int] = 0,
+):
+    for param in model.parameters():
+        param.requires_grad = False
+
+    metrics = MACELoss(loss_fn=loss_fn).to(device)
+
+    start_time = time.time()
+    for batch in train_loader:
+        batch = batch.to(device)
+        batch_dict = batch.to_dict()
+        output = model(
+            batch_dict,
+            training=False,
+            compute_force=output_args["forces"],
+            compute_virials=output_args["virials"],
+            compute_stress=output_args["stress"],
+        )
+        avg_loss, aux = metrics(batch, output)
+
+    avg_loss, aux = metrics.compute()
+    aux["time"] = time.time() - start_time
+    metrics.reset()
+
+    for param in model.parameters():
+        param.requires_grad = True
+
+    return avg_loss, aux
+    
+
+    logging.info("Training complete")
+
 def train(
     model: torch.nn.Module,
     loss_fn: torch.nn.Module,
@@ -176,18 +216,18 @@ def train(
 
     # log validation loss before _any_ training
     valid_loss = 0.0
-    for valid_loader_name, valid_loader in valid_loaders.items():
-        valid_loss_head, eval_metrics = evaluate(
-            model=model,
-            loss_fn=loss_fn,
-            data_loader=valid_loader,
-            output_args=output_args,
-            device=device,
-        )
-        valid_err_log(
-            valid_loss_head, eval_metrics, logger, log_errors, None, valid_loader_name
-        )
-    valid_loss = valid_loss_head  # consider only the last head for the checkpoint
+    #for valid_loader_name, valid_loader in valid_loaders.items():
+    #    valid_loss_head, eval_metrics = evaluate(
+    #        model=model,
+    #        loss_fn=loss_fn,
+    #        data_loader=valid_loader,
+    #        output_args=output_args,
+    #        device=device,
+    #    )
+    #    valid_err_log(
+    #        valid_loss_head, eval_metrics, logger, log_errors, None, valid_loader_name
+    #    )
+    #valid_loss = valid_loss_head  # consider only the last head for the checkpoint
 
     while epoch < max_num_epochs:
         # LR scheduler and SWA update

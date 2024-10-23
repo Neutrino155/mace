@@ -37,6 +37,10 @@ class HDF5Dataset(Dataset):
             self._file = h5py.File(self.file_path, "r")
         return self._file
 
+    def __del__(self):
+        if self._file is not None:
+            self._file.close()
+
     def __getstate__(self):
         _d = dict(self.__dict__)
 

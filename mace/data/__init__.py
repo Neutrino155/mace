@@ -1,5 +1,6 @@
 from .atomic_data import AtomicData
 from .hdf5_dataset import HDF5Dataset, dataset_from_sharded_hdf5
+from .lmdb_dataset import LMDBDataset
 from .neighborhood import get_neighborhood
 from .utils import (
     Configuration,
@@ -29,6 +30,7 @@ __all__ = [
     "config_from_atoms",
     "config_from_atoms_list",
     "AtomicData",
+    "LMDBDataset",
     "compute_average_E0s",
     "save_dataset_as_HDF5",
     "HDF5Dataset",

@@ -19,6 +19,10 @@ from mace.tools import (
 from .neighborhood import get_neighborhood
 from .utils import Configuration
 
+import warnings
+# Configure warnings to show only once
+warnings.simplefilter("once")
+
 
 class AtomicData(torch_geometric.data.Data):
     num_graphs: torch.Tensor
@@ -131,9 +135,9 @@ class AtomicData(torch_geometric.data.Data):
         )
         try:
             head = torch.tensor(heads.index(config.head), dtype=torch.long)
-        except:
+        except Exception as e:
             head = torch.tensor(len(heads) - 1, dtype=torch.long)
-
+            warnings.warn("config.head not found, using last head", UserWarning)
         
         alex_config_id = config.alex_config_id
 
