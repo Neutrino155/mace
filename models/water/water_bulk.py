@@ -21,7 +21,7 @@ def train_mace(config_file_path):
     sys.argv = ["program", "--config", config_file_path]
     mace_run_train_main()
 
-train_mace("config/water_bulk_config.yml")
+# train_mace("config/water_bulk_config.yml")
 
 # remove checkpoints since they may cause errors on retraining a model with the same name but a different architecture
 for file in glob.glob("MACE_models/*.pt"):
@@ -36,21 +36,26 @@ def eval_mu_alpha(configs, model, output, device='cuda', batch_size='4'):
     mace_eval_mu_alpha_main()
 
 # evaluate dielectrics for the training set
-eval_mu_alpha(
-    configs="data/water_bulk_train.xyz",
-    model="MACE_models/water_bulk_MACE_dipole_pol.model",
-    output="water_bulk_train.xyz"
-)
+# eval_mu_alpha(
+#     configs="data/water_bulk_train.xyz",
+#     model="MACE_models/water_bulk_MACE_dipole_pol.model",
+#     output="water_bulk_train.xyz"
+# )
 
 # evaluate dielectrics for the test set
-eval_mu_alpha(
-    configs="data/water_bulk_test.xyz",
-    model="MACE_models/water_bulk_MACE_dipole_pol.model",
-    output="tests/water_bulk_test.xyz"
-)
+# eval_mu_alpha(
+#     configs="data/water_bulk_test.xyz",
+#     model="MACE_models/water_bulk_MACE_dipole_pol.model",
+#     output="tests/water_bulk_test.xyz"
+# )
 
 from aseMolec import extAtoms as ea
 dft_mu = np.matrix(ea.get_prop(water_bulk_data, 'info', 'REF_dipole', peratom=False))
 with open('DATA_mu.txt','wb') as f:
     for line in dft_mu:
-        np.savetxt(f, line, fmt='%.2f')
+        np.savetxt(f, line)
+
+dft_alpha = np.matrix(ea.get_prop(water_bulk_data, 'info', 'REF_polarizability', peratom=False))
+with open('DATA_alpha.txt','wb') as f:
+    for line in dft_alpha:
+        np.savetxt(f, line)
