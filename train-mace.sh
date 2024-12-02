@@ -19,7 +19,7 @@
 
 # Set the working directory to somewhere in your scratch space.
 # Replace "<your_UCL_id>" with your UCL user ID :)
-#$ -wd /home/uccabaa/Scratch/repositories/mace/models/water
+#$ -wd /home/uccabaa/Scratch/repositories/mace/models/BaTiO3
 
 #$ -P Free
 #$ -A UCL_chemM_Butler
@@ -40,9 +40,9 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Run the application - the line below is just a random example.
 mace_run_train \
-    --name="water_bulk_MACE_dipole_pol" \
-    --train_file="data/water_bulk_train.xyz" \
-    --test_file="data/water_bulk_test.xyz" \
+    --name="BaTiO3_MACE_dipole_pol" \
+    --train_file="data/BaTiO3_train.xyz" \
+    --test_file="data/BaTiO3_test.xyz" \
     --valid_fraction=0.05 \
     --model="AtomicDielectricMACE" \
     --model_dir="MACE_models" \
@@ -74,11 +74,11 @@ mace_run_train \
     --compute_polarizability
 
 mace_eval_mu_alpha \
-  --configs="data/water_bulk.xyz" \
-  --model="MACE_models/water_bulk_MACE_dipole_pol.model" \
-  --output="water_bulk_train.xyz" \
+  --configs="data/BaTiO3.xyz" \
+  --model="MACE_models/BaTiO3_MACE_dipole_pol.model" \
+  --output="BaTiO3.xyz" \
   --device=cuda \
-  --batch_size=10 
+  --batch_size=10
 
 # 10. Preferably, tar-up (archive) all output files onto the shared scratch area
 # tar zcvf $HOME/Scratch/files_from_job_$JOB_ID.tar.gz $TMPDIR
